@@ -5,7 +5,7 @@
 <h1 align="center">PegaProx</h1>
 
 <p align="center">
-  <strong>Modern Multi-Cluster Management for Proxmox VE</strong>
+  <strong>Modern Multi-Cluster Management for Proxmox VE & XCP-ng</strong>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 ## 🚀 What is PegaProx?
 
-PegaProx is a powerful web-based management interface for Proxmox VE clusters. Manage multiple clusters from a single dashboard with features like live monitoring, VM management, automated tasks, and more.
+PegaProx is a powerful web-based management interface for Proxmox VE and XCP-ng clusters. Manage multiple clusters from a single dashboard with features like live monitoring, VM management, automated tasks, and more.
 
 <p align="center">
   <img src="https://pegaprox.com/pictures/pegaprox.png" alt="Dashboard Screenshot" width="800"/>
@@ -48,6 +48,13 @@ PegaProx is a powerful web-based management interface for Proxmox VE clusters. M
 - 🔁 **High Availability** - Auto-restart VMs on node failure with configurable timing
 - 📍 **Affinity Rules** - Keep VMs together or apart on hosts (QEMU + LXC)
 
+### XCP-ng Integration (Tech Preview)
+- 🟢 **XCP-ng Pool Support** - Connect XCP-ng / Xen hypervisor pools alongside Proxmox clusters
+- ▶️ **VM Power Actions** - Start, stop, shutdown, reboot, suspend/resume
+- 🖥️ **VNC Console** - Browser-based remote console via XAPI
+- 💽 **Disk & Network Management** - Add, resize, remove disks and NICs
+- 🔧 **Maintenance Mode** - Enter/exit with automatic VM evacuation
+
 ### ESXi Migration
 - 🔀 **ESXi Import Wizard** - Migrate VMs from ESXi hosts to Proxmox
 - ⚡ **Near-Zero Downtime** - Transfer running VMs with minimal interruption (max. 1 VM recommended)
@@ -70,7 +77,8 @@ PegaProx is a powerful web-based management interface for Proxmox VE clusters. M
 - 🚨 **Alerts** - Get notified on high CPU, memory, or disk usage
 - 📜 **Audit Logging** - Track all user actions with IP addresses
 - 🔧 **Custom Scripts** - Run scripts across nodes
-- 💿 **Ceph Management** - Monitor and manage Ceph storage pools
+- 💿 **Ceph Management** - Monitor and manage Ceph storage pools, RBD mirroring
+- 🔐 **ACME / Let's Encrypt** - Automatic SSL certificate renewal with HTTP-01 challenge
 
 ### Advanced Features
 - 🌐 **Offline Mode** - Works without internet (local assets)
@@ -83,7 +91,7 @@ PegaProx is a powerful web-based management interface for Proxmox VE clusters. M
 ## 📋 Requirements
 
 - Python 3.8+
-- Proxmox VE 8.0+ or 9.0+
+- Proxmox VE 8.0+ or 9.0+ and/or XCP-ng 8.2+
 - Modern web browser (Chrome, Firefox, Edge, Safari)
 
 ## ⚡ Quick Start
