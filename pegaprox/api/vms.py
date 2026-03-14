@@ -1037,7 +1037,7 @@ def get_vm_backups(cluster_id, node, vm_type, vmid):
                 # LW: proxmox naming conventions are weird but ok
                 volid = item.get('volid', '')
                 filename = volid.split('/')[-1] if '/' in volid else volid.split(':')[-1]
-                
+
                 # check if this backup belongs to our VM
                 # format is like: vzdump-qemu-100-2025_01_15-12_00_00.vma.zst
                 if f'-{vmid}-' in filename or filename.startswith(f'vzdump-{vm_type[:4]}-{vmid}'):
@@ -1048,9 +1048,49 @@ def get_vm_backups(cluster_id, node, vm_type, vmid):
                         'size': item.get('size', 0),
                         'ctime': item.get('ctime', 0),  # creation time
                         'format': item.get('format', 'unknown'),
-                        'notes': item.get('notes', '')
+                        'notes': item.get('notes', ''),
+                        'source': 'local',
                     })
-        
+
+        # fetch backups from PBS servers linked to this cluster
+        pbs_backup_type = 'vm' if vm_type == 'qemu' else 'ct'
+        for pbs_id, pbs_manager in pbs_managers.items():
+            if not pbs_manager.enabled:
+                continue
+            if cluster_id not in pbs_manager.linked_clusters:
+                continue
+            if not pbs_manager.connected:
+                continue
+            try:
+                ds_result = pbs_manager.get_datastores()
+                datastores = ds_result.get('data', []) if isinstance(ds_result, dict) else []
+                for ds in datastores:
+                    store_name = ds.get('store') or ds.get('name')
+                    if not store_name:
+                        continue
+                    snaps_result = pbs_manager.get_snapshots(store_name)
+                    snapshots = snaps_result.get('data', []) if isinstance(snaps_result, dict) else []
+                    for snap in snapshots:
+                        if snap.get('backup-type') != pbs_backup_type:
+                            continue
+                        if str(snap.get('backup-id', '')) != str(vmid):
+                            continue
+                        backup_time = snap.get('backup-time', 0)
+                        backups.append({
+                            'volid': f"pbs:{pbs_id}/{store_name}/{pbs_backup_type}/{vmid}/{backup_time}",
+                            'storage': store_name,
+                            'filename': f"{pbs_backup_type}/{vmid}/{datetime.utcfromtimestamp(backup_time).strftime('%Y-%m-%dT%H:%M:%S')}",
+                            'size': snap.get('size', 0),
+                            'ctime': backup_time,
+                            'format': 'pbs',
+                            'notes': snap.get('comment', ''),
+                            'source': 'pbs',
+                            'pbs_name': pbs_manager.name,
+                            'protected': snap.get('protected', False),
+                        })
+            except Exception as e:
+                logging.warning(f"[BACKUP] Failed to fetch PBS backups from {pbs_id}: {e}")
+
         # sort by creation time, newest first
         backups.sort(key=lambda x: x.get('ctime', 0), reverse=True)
         

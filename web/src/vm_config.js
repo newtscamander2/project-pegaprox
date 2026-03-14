@@ -2438,13 +2438,25 @@
                                                                         <Icons.Database className="text-purple-400" />
                                                                     </div>
                                                                     <div>
-                                                                        <div className="font-medium text-white">{backup.filename}</div>
+                                                                        <div className="font-medium text-white flex items-center gap-2">
+                                                                            {backup.filename}
+                                                                            {backup.source === 'pbs' && (
+                                                                                <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold">PBS</span>
+                                                                            )}
+                                                                            {backup.protected && (
+                                                                                <Icons.Lock className="text-yellow-400 w-3 h-3" title="Protected" />
+                                                                            )}
+                                                                        </div>
                                                                         <div className="text-xs text-gray-400">
                                                                             {backup.ctime ? new Date(backup.ctime * 1000).toLocaleString() : ''}
                                                                             <span className="mx-2">•</span>
                                                                             {(backup.size / (1024*1024*1024)).toFixed(2)} GB
                                                                             <span className="mx-2">•</span>
-                                                                            <span className="text-gray-500">{backup.storage}</span>
+                                                                            <span className="text-gray-500">
+                                                                                {backup.source === 'pbs'
+                                                                                    ? `${backup.pbs_name} / ${backup.storage}`
+                                                                                    : backup.storage}
+                                                                            </span>
                                                                         </div>
                                                                         {backup.notes && (
                                                                             <div className="text-sm text-gray-500 mt-1">{backup.notes}</div>
@@ -2454,17 +2466,17 @@
                                                                 <div className="flex items-center gap-2">
                                                                     <button
                                                                         onClick={() => setShowRestoreBackup(backup)}
-                                                                        disabled={backupLoading}
+                                                                        disabled={backupLoading || backup.source === 'pbs'}
                                                                         className="p-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors disabled:opacity-50"
-                                                                        title={t('restore') || 'Restore'}
+                                                                        title={backup.source === 'pbs' ? 'Restore of PBS backups is managed via the PBS section' : (t('restore') || 'Restore')}
                                                                     >
                                                                         <Icons.RotateCcw />
                                                                     </button>
                                                                     <button
                                                                         onClick={() => handleDeleteBackup(backup.volid)}
-                                                                        disabled={backupLoading}
+                                                                        disabled={backupLoading || backup.source === 'pbs'}
                                                                         className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
-                                                                        title={t('delete')}
+                                                                        title={backup.source === 'pbs' ? 'Delete of PBS backups is managed via the PBS section' : t('delete')}
                                                                     >
                                                                         <Icons.Trash />
                                                                     </button>
