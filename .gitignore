@@ -17,6 +17,7 @@ logs/
 backups/
 *.db
 *.db-journal
+images/login_bg.png
 
 # Build artifacts
 web/Dev/.build/
@@ -30,3 +31,4 @@ archive/
 .idea/
 *.swp
 *.swo
+
