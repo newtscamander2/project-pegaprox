@@ -541,7 +541,6 @@
         function SponsorSlot({ num }) {
             const { t } = useTranslation();
             const [hasImage, setHasImage] = useState(true);
-            const [sponsorUrl, setSponsorUrl] = useState(null);
             
             // Sponsor URLs - edit these to add sponsor links
             const sponsorLinks = {
@@ -560,9 +559,10 @@
             };
             
             const url = sponsorLinks[num];
+            const isEmptySlot = url === null;
             const imageSrc = `/images/sponsors/sponsor${num}.png`;
-            
-            if (!hasImage) {
+
+            if (!hasImage || isEmptySlot) {
                 // Show "Wanted" placeholder
                 return(
                     <a 
