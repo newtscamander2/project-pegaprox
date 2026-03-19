@@ -562,11 +562,11 @@
             const url = sponsorLinks[num];
             const imageSrc = `/images/sponsors/sponsor${num}.png`;
             
-            if (!hasImage) {
-                // Show "Wanted" placeholder
+            if (!hasImage || !url) {
+                // Show "Wanted" placeholder when image failed to load or sponsor slot is empty
                 return(
-                    <a 
-                        href="mailto:sponsor@pegaprox.com?subject=Sponsorship%20Inquiry" 
+                    <a
+                        href="mailto:sponsor@pegaprox.com?subject=Sponsorship%20Inquiry"
                         className="group"
                         title={t('becomeSponsor') || 'Become a sponsor'}
                     >
@@ -576,7 +576,7 @@
                     </a>
                 );
             }
-            
+
             const content = (
                 <div className="w-12 h-12 rounded-lg bg-proxmox-card border border-proxmox-border p-1 flex items-center justify-center hover:border-proxmox-orange/50 transition-all hover:scale-105 overflow-hidden">
                     <img 
