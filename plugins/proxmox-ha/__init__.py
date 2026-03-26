@@ -95,20 +95,6 @@ def _require_string(body, field):
     return value.strip(), None
 
 
-def _get_optional_string(body, field):
-    """
-    Extract an optional string field from a dict.
-    Returns (stripped_str, None) if present and valid, ('', None) if absent,
-    or (None, error_response_tuple) if present but not a string.
-    """
-    value = body.get(field)
-    if value is None:
-        return '', None
-    if not isinstance(value, str):
-        return None, (jsonify({'error': f"'{field}' must be a string"}), 400)
-    return value.strip(), None
-
-
 def _parse_optional_int(body, field):
     """
     Parse an optional integer field from a dict.
