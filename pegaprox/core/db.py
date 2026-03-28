@@ -238,6 +238,8 @@ class PegaProxDB:
                 auth_source TEXT DEFAULT 'local',
                 display_name TEXT DEFAULT '',
                 email TEXT DEFAULT '',
+                avatar_mime TEXT DEFAULT '',
+                avatar_data TEXT DEFAULT '',
                 ldap_dn TEXT DEFAULT '',
                 last_ldap_sync TEXT DEFAULT '',
                 tenant_permissions TEXT DEFAULT '{}',
@@ -777,6 +779,20 @@ class PegaProxDB:
                     logging.info("Added email column to users table")
                 except Exception as e:
                     logging.error(f"Failed to add email column: {e}")
+
+            if 'avatar_mime' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN avatar_mime TEXT DEFAULT ''")
+                    logging.info("Added avatar_mime column to users table")
+                except Exception as e:
+                    logging.error(f"Failed to add avatar_mime column: {e}")
+
+            if 'avatar_data' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN avatar_data TEXT DEFAULT ''")
+                    logging.info("Added avatar_data column to users table")
+                except Exception as e:
+                    logging.error(f"Failed to add avatar_data column: {e}")
             
             if 'ldap_dn' not in columns:
                 try:
@@ -2336,6 +2352,13 @@ class PegaProxDB:
         cursor = self.conn.cursor()
         cursor.execute('SELECT * FROM users')
         
+        def build_avatar_url(row_data: dict) -> str:
+            avatar_mime = row_data.get('avatar_mime', '') or ''
+            avatar_data = row_data.get('avatar_data', '') or ''
+            if avatar_mime and avatar_data:
+                return f"data:{avatar_mime};base64,{avatar_data}"
+            return ''
+
         users = {}
         for row in cursor.fetchall():
             # Handle both old schema (no password_salt) and new schema
@@ -2374,6 +2397,9 @@ class PegaProxDB:
                 'auth_source': row_dict.get('auth_source', 'local'),
                 'display_name': row_dict.get('display_name', ''),
                 'email': row_dict.get('email', ''),
+                'avatar_mime': row_dict.get('avatar_mime', ''),
+                'avatar_data': row_dict.get('avatar_data', ''),
+                'avatar_url': build_avatar_url(row_dict),
                 'ldap_dn': row_dict.get('ldap_dn', ''),
                 'last_ldap_sync': row_dict.get('last_ldap_sync', ''),
                 # NS: Feb 2026 - OIDC and tenant permission fields
@@ -2406,6 +2432,13 @@ class PegaProxDB:
             if ':' in combined:
                 password_salt, password_hash = combined.split(':', 1)
         
+        def build_avatar_url(row_data: dict) -> str:
+            avatar_mime = row_data.get('avatar_mime', '') or ''
+            avatar_data = row_data.get('avatar_data', '') or ''
+            if avatar_mime and avatar_data:
+                return f"data:{avatar_mime};base64,{avatar_data}"
+            return ''
+
         return {
             'password_salt': password_salt,
             'password_hash': password_hash,
@@ -2427,6 +2460,9 @@ class PegaProxDB:
             'auth_source': row_dict.get('auth_source', 'local'),
             'display_name': row_dict.get('display_name', ''),
             'email': row_dict.get('email', ''),
+            'avatar_mime': row_dict.get('avatar_mime', ''),
+            'avatar_data': row_dict.get('avatar_data', ''),
+            'avatar_url': build_avatar_url(row_dict),
             'ldap_dn': row_dict.get('ldap_dn', ''),
             'last_ldap_sync': row_dict.get('last_ldap_sync', ''),
             # NS: Feb 2026 - OIDC and tenant permission fields
@@ -2447,14 +2483,14 @@ class PegaProxDB:
             (username, password_salt, password_hash, role, permissions, tenant,
              created_at, last_login, password_expiry,
              totp_secret_encrypted, totp_pending_secret_encrypted, totp_enabled, force_password_change,
-             enabled, theme, language, ui_layout, taskbar_auto_expand,
-             auth_source, display_name, email, ldap_dn, last_ldap_sync,
+            enabled, theme, language, ui_layout, taskbar_auto_expand,
+             auth_source, display_name, email, avatar_mime, avatar_data, ldap_dn, last_ldap_sync,
              tenant_permissions, denied_permissions, oidc_sub, last_oidc_sync,
              layout_chosen)
             VALUES (?, ?, ?, ?, ?, ?,
                     COALESCE((SELECT created_at FROM users WHERE username = ?), ?),
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?)
         ''', (
@@ -2479,6 +2515,8 @@ class PegaProxDB:
             data.get('auth_source', 'local'),  # LW: Feb 2026 - LDAP
             data.get('display_name', ''),
             data.get('email', ''),
+            data.get('avatar_mime', ''),
+            data.get('avatar_data', ''),
             data.get('ldap_dn', ''),
             data.get('last_ldap_sync', ''),
             # NS: Feb 2026 - OIDC and tenant permission fields
@@ -3453,4 +3491,3 @@ def get_db() -> PegaProxDB:
     if _db is None:
         _db = PegaProxDB()
     return _db
-

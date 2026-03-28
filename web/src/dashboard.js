@@ -7043,9 +7043,11 @@
                                             onClick={() => setShowUserMenu(!showUserMenu)}
                                             className={`flex items-center gap-2 ${isCorporate ? 'px-2 py-1' : 'px-3 py-2'} bg-proxmox-dark border border-proxmox-border rounded-lg hover:border-proxmox-orange/50 transition-colors`}
                                         >
-                                            <div className={`${isCorporate ? 'w-6 h-6 text-[11px]' : 'w-8 h-8'} rounded-full bg-proxmox-orange/20 flex items-center justify-center text-proxmox-orange font-semibold`}>
-                                                {user?.username?.[0]?.toUpperCase() || 'U'}
-                                            </div>
+                                            <UserAvatar
+                                                user={user}
+                                                sizeClass={isCorporate ? 'w-6 h-6' : 'w-8 h-8'}
+                                                textClass={isCorporate ? 'text-[11px]' : 'text-sm'}
+                                            />
                                             {!isCorporate && <span className="text-sm text-gray-300 hidden sm:inline">{user?.display_name || user?.username}</span>}
                                             <Icons.ChevronDown className={isCorporate ? 'w-3 h-3' : undefined} />
                                         </button>

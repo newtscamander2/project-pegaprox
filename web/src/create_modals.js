@@ -1988,11 +1988,13 @@
         // User Profile Modal with Password Change and 2FA Setup
         function UserProfileModal({ isOpen, onClose, addToast }) {
             const { t } = useTranslation();
-            const { getAuthHeaders, user, updatePreferences } = useAuth();
+            const { getAuthHeaders, user, updatePreferences, updateCurrentUser } = useAuth();
             const { isCorporate } = useLayout();
             const [activeTab, setActiveTab] = useState('appearance');
             const [loading, setLoading] = useState(false);
             const [selectedTheme, setSelectedTheme] = useState(user?.theme || 'proxmoxDark');
+            const [avatarUploading, setAvatarUploading] = useState(false);
+            const avatarInputRef = React.useRef(null);
             
             // Password change
             const [currentPassword, setCurrentPassword] = useState('');
@@ -2054,6 +2056,76 @@
                     fetchTokens();  // MK: Load API tokens
                 }
             }, [isOpen]);
+
+            const handleAvatarSelected = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                if (!file.type || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+                    addToast('Please choose a PNG, JPEG, GIF, or WebP image', 'error');
+                    e.target.value = '';
+                    return;
+                }
+
+                if (file.size > 512 * 1024) {
+                    addToast('Avatar image must be 512 KB or smaller', 'error');
+                    e.target.value = '';
+                    return;
+                }
+
+                setAvatarUploading(true);
+                try {
+                    const avatarDataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = () => reject(new Error('Failed to read image'));
+                        reader.readAsDataURL(file);
+                    });
+
+                    const response = await fetch(`${API_URL}/user/avatar`, {
+                        method: 'PUT',
+                        credentials: 'include',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...getAuthHeaders()
+                        },
+                        body: JSON.stringify({ avatar: avatarDataUrl })
+                    });
+
+                    const data = await response.json().catch(() => ({}));
+                    if (response.ok) {
+                        updateCurrentUser({ avatar_url: data.avatar_url || '' });
+                        addToast('Avatar updated', 'success');
+                    } else {
+                        addToast(data.error || 'Failed to update avatar', 'error');
+                    }
+                } catch (err) {
+                    addToast(err.message || 'Failed to update avatar', 'error');
+                }
+                setAvatarUploading(false);
+                e.target.value = '';
+            };
+
+            const handleAvatarRemove = async () => {
+                setAvatarUploading(true);
+                try {
+                    const response = await fetch(`${API_URL}/user/avatar`, {
+                        method: 'DELETE',
+                        credentials: 'include',
+                        headers: getAuthHeaders()
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (response.ok) {
+                        updateCurrentUser({ avatar_url: '' });
+                        addToast('Avatar removed', 'success');
+                    } else {
+                        addToast(data.error || 'Failed to remove avatar', 'error');
+                    }
+                } catch (err) {
+                    addToast(err.message || 'Failed to remove avatar', 'error');
+                }
+                setAvatarUploading(false);
+            };
             
             // LW: Feb 2026 - API Token management functions
             const fetchTokens = async () => {
@@ -2268,9 +2340,7 @@
                         {/* Header */}
                         <div className="flex items-center justify-between p-6 border-b border-proxmox-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-proxmox-orange/20 flex items-center justify-center text-proxmox-orange font-semibold">
-                                    {user?.username?.[0]?.toUpperCase() || 'U'}
-                                </div>
+                                <UserAvatar user={user} sizeClass="w-10 h-10" textClass="text-base" />
                                 <div>
                                     <h2 className="text-xl font-bold text-white">{t('myProfile')}</h2>
                                     <p className="text-sm text-gray-400">{user?.display_name || user?.username}</p>
@@ -2323,6 +2393,45 @@
                             {/* Appearance Tab */}
                             {activeTab === 'appearance' && (
                                 <div className="space-y-6">
+                                    <div className="bg-proxmox-dark border border-proxmox-border rounded-xl p-4">
+                                        <div className="flex items-center gap-4">
+                                            <UserAvatar user={user} sizeClass="w-16 h-16" textClass="text-xl" />
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="text-white font-medium">{t('profilePicture') || 'Profile Picture'}</h3>
+                                                <p className="text-sm text-gray-400">
+                                                    {t('profilePictureDesc') || 'Upload a personal avatar for the dashboard and user management overview.'}
+                                                </p>
+                                                <p className="text-xs text-gray-500 mt-1">PNG, JPEG, GIF, or WebP up to 512 KB.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 mt-4">
+                                            <input
+                                                ref={avatarInputRef}
+                                                type="file"
+                                                accept="image/png,image/jpeg,image/gif,image/webp"
+                                                onChange={handleAvatarSelected}
+                                                className="hidden"
+                                            />
+                                            <button
+                                                onClick={() => avatarInputRef.current?.click()}
+                                                disabled={avatarUploading}
+                                                className="px-4 py-2 bg-proxmox-orange hover:bg-orange-600 rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                                            >
+                                                {avatarUploading ? <Icons.Loader className="w-4 h-4 animate-spin" /> : <Icons.Upload className="w-4 h-4" />}
+                                                {user?.avatar_url ? (t('changeAvatar') || 'Change Avatar') : (t('uploadAvatar') || 'Upload Avatar')}
+                                            </button>
+                                            {user?.avatar_url && (
+                                                <button
+                                                    onClick={handleAvatarRemove}
+                                                    disabled={avatarUploading}
+                                                    className="px-4 py-2 bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium disabled:opacity-50"
+                                                >
+                                                    {t('removeAvatar') || 'Remove Avatar'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
                                             <Icons.Palette />
@@ -2791,4 +2900,3 @@
                 </div>
             );
         }
-

@@ -1991,9 +1991,7 @@
                                                     <tr key={user.username} className="border-b border-gray-700/50 hover:bg-proxmox-hover">
                                                         <td className="px-4 py-3">
                                                             <div className="flex items-center gap-2">
-                                                                <div className="w-8 h-8 rounded-full bg-proxmox-orange/20 flex items-center justify-center text-proxmox-orange text-sm font-semibold">
-                                                                    {user.username[0].toUpperCase()}
-                                                                </div>
+                                                                <UserAvatar user={user} sizeClass="w-8 h-8" textClass="text-sm" />
                                                                 <span className="text-white font-medium">{user.username}</span>
                                                             </div>
                                                         </td>
@@ -5923,4 +5921,3 @@
                 </>
             );
         }
-

@@ -30,6 +30,34 @@
             );
         }
 
+        function getUserInitials(user) {
+            const displayName = user?.display_name || user?.username || '';
+            const parts = displayName.trim().split(/\s+/).filter(Boolean);
+            if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+            return (displayName[0] || 'U').toUpperCase();
+        }
+
+        function UserAvatar({ user, sizeClass = 'w-8 h-8', textClass = 'text-sm', className = '' }) {
+            const initials = getUserInitials(user);
+            const classes = `${sizeClass} rounded-full overflow-hidden flex items-center justify-center ${className}`.trim();
+
+            if (user?.avatar_url) {
+                return (
+                    <img
+                        src={user.avatar_url}
+                        alt={`${user?.display_name || user?.username || 'User'} avatar`}
+                        className={`${classes} object-cover border border-proxmox-border/60`}
+                    />
+                );
+            }
+
+            return (
+                <div className={`${classes} bg-proxmox-orange/20 text-proxmox-orange font-semibold ${textClass}`}>
+                    {initials}
+                </div>
+            );
+        }
+
         // VM Metrics Modal - Shows detailed graphs
         // LW: RRD data from Proxmox, charts built with SVG
         // Oct 2025: Added timeframe selector after user feedback
@@ -1194,4 +1222,3 @@
                 </>
             );
         }
-

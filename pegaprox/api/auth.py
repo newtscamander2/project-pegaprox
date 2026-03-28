@@ -599,6 +599,7 @@ def auth_login():
             'role': user['role'],
             'display_name': user.get('display_name', username),
             'email': user.get('email', ''),
+            'avatar_url': user.get('avatar_url', ''),
             'auth_source': user.get('auth_source', 'local'),  # NS: For LDAP/Entra/OIDC badge
             'permissions': get_user_permissions(user),  # LW: Frontend can hide/show buttons
             'tenant_id': user.get('tenant_id', DEFAULT_TENANT_ID),
@@ -765,6 +766,7 @@ def auth_check():
             'role': fresh_role,
             'display_name': user.get('display_name', session['user']),
             'email': user.get('email', ''),
+            'avatar_url': user.get('avatar_url', ''),
             'auth_source': user.get('auth_source', 'local'),  # NS: For LDAP/Entra/OIDC badge
             'tenant_id': user.get('tenant_id', DEFAULT_TENANT_ID),  # MK: For multi-tenant UI
             'permissions': user_permissions,  # LW: So frontend knows what buttons to show

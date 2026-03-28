@@ -288,6 +288,10 @@
                     return { success: false, error: e.message };
                 }
             };
+
+            const updateCurrentUser = (updates) => {
+                setUser(currentUser => currentUser ? { ...currentUser, ...updates } : currentUser);
+            };
             
             const logout = async () => {
                 try {
@@ -310,7 +314,7 @@
             };
             
             return(
-                <AuthContext.Provider value={{ user, sessionId, isAuthenticated, loading, error, login, logout, getAuthHeaders, isAdmin: user?.role === 'admin', passwordExpiry, requires2FASetup, setRequires2FASetup, updatePreferences, ldapEnabled, oidcEnabled, oidcButtonText, loginBackground, reverseProxyEnabled }}>
+                <AuthContext.Provider value={{ user, sessionId, isAuthenticated, loading, error, login, logout, getAuthHeaders, isAdmin: user?.role === 'admin', passwordExpiry, requires2FASetup, setRequires2FASetup, updatePreferences, updateCurrentUser, ldapEnabled, oidcEnabled, oidcButtonText, loginBackground, reverseProxyEnabled }}>
                     {children}
                 </AuthContext.Provider>
             );

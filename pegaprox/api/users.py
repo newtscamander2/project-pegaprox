@@ -5,6 +5,7 @@ import json
 import time
 import logging
 import re
+import base64
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
@@ -33,6 +34,45 @@ from pegaprox.api.helpers import load_server_settings, save_server_settings, get
 
 bp = Blueprint('users', __name__)
 
+ALLOWED_AVATAR_MIMES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
+MAX_AVATAR_BYTES = 512 * 1024
+
+
+def _build_avatar_url(user: dict) -> str:
+    avatar_mime = user.get('avatar_mime', '') or ''
+    avatar_data = user.get('avatar_data', '') or ''
+    if avatar_mime and avatar_data:
+        return f"data:{avatar_mime};base64,{avatar_data}"
+    return ''
+
+
+def _parse_avatar_data_url(value: str):
+    """Validate avatar data URL and return (mime, base64-data)."""
+    if not isinstance(value, str) or not value.startswith('data:'):
+        return None, None, 'Avatar must be a valid image data URL'
+
+    match = re.fullmatch(r'data:(image/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)', value.strip())
+    if not match:
+        return None, None, 'Avatar must be a base64-encoded PNG, JPEG, GIF, or WebP image'
+
+    avatar_mime = match.group(1).lower()
+    avatar_data = re.sub(r'\s+', '', match.group(2))
+    if avatar_mime not in ALLOWED_AVATAR_MIMES:
+        return None, None, 'Unsupported avatar format. Use PNG, JPEG, GIF, or WebP'
+
+    try:
+        raw = base64.b64decode(avatar_data, validate=True)
+    except Exception:
+        return None, None, 'Avatar image is not valid base64 data'
+
+    if not raw:
+        return None, None, 'Avatar image is empty'
+
+    if len(raw) > MAX_AVATAR_BYTES:
+        return None, None, f'Avatar image must be {MAX_AVATAR_BYTES // 1024} KB or smaller'
+
+    return avatar_mime, avatar_data, None
+
 @bp.route('/api/user/preferences', methods=['GET'])
 @require_auth()
 def get_user_preferences():
@@ -54,6 +94,56 @@ def get_user_preferences():
         'taskbar_auto_expand': user.get('taskbar_auto_expand', True),  # NS: Default true for backward compat
         'default_theme': default_theme
     })
+
+
+@bp.route('/api/user/avatar', methods=['PUT'])
+@require_auth()
+def update_user_avatar():
+    """Upload or replace the current user's avatar."""
+    username = request.session['user']
+    data = request.get_json() or {}
+
+    avatar_mime, avatar_data, error = _parse_avatar_data_url(data.get('avatar'))
+    if error:
+        return jsonify({'error': error}), 400
+
+    users_db = load_users()
+    if username not in users_db:
+        return jsonify({'error': 'User not found'}), 404
+
+    user = users_db[username]
+    user['avatar_mime'] = avatar_mime
+    user['avatar_data'] = avatar_data
+
+    db = get_db()
+    db.save_user(username, user)
+
+    logging.info(f"User '{username}' updated avatar")
+    log_audit(username, 'user.avatar_updated', 'Updated profile avatar')
+
+    return jsonify({'success': True, 'avatar_url': _build_avatar_url(user)})
+
+
+@bp.route('/api/user/avatar', methods=['DELETE'])
+@require_auth()
+def delete_user_avatar():
+    """Remove the current user's avatar."""
+    username = request.session['user']
+    users_db = load_users()
+    if username not in users_db:
+        return jsonify({'error': 'User not found'}), 404
+
+    user = users_db[username]
+    user['avatar_mime'] = ''
+    user['avatar_data'] = ''
+
+    db = get_db()
+    db.save_user(username, user)
+
+    logging.info(f"User '{username}' removed avatar")
+    log_audit(username, 'user.avatar_removed', 'Removed profile avatar')
+
+    return jsonify({'success': True, 'avatar_url': ''})
 
 
 @bp.route('/api/user/preferences', methods=['PUT'])
@@ -232,6 +322,7 @@ def get_users():
             'role': user['role'],
             'display_name': user.get('display_name', username),
             'email': user.get('email', ''),
+            'avatar_url': _build_avatar_url(user),
             'enabled': user.get('enabled', True),
             'totp_enabled': user.get('totp_enabled', False),
             'created_at': user.get('created_at'),
@@ -1624,4 +1715,3 @@ def rm_pool(cluster_id, pool_id):
     except:
         pass  # NS: not critical, orphaned perms don't hurt
     return jsonify({'success': True})
-
