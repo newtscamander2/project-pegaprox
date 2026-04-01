@@ -343,7 +343,12 @@ class PegaProxManager:
         Token auth uses Authorization header, password auth uses cookies
         """
         session = requests.Session()
-        session.verify = self._ssl_verify
+        # NS: use system CA store when verifying - certifi bundle doesn't include custom CAs (#246)
+        if self._ssl_verify:
+            _ca = ssl.get_default_verify_paths()
+            session.verify = _ca.cafile or _ca.openssl_cafile or True
+        else:
+            session.verify = False
         if not self._ssl_verify:
             session.mount('https://', _NoHostnameCheckAdapter())  # MK: fix for IP-based hosts
 
@@ -551,7 +556,11 @@ class PegaProxManager:
                 try:
                     # Create a temporary session just for login
                     session = requests.Session()
-                    session.verify = self._ssl_verify
+                    if self._ssl_verify:
+                        _ca = ssl.get_default_verify_paths()
+                        session.verify = _ca.cafile or _ca.openssl_cafile or True
+                    else:
+                        session.verify = False
                     if not self._ssl_verify:
                         session.mount('https://', _NoHostnameCheckAdapter())  # MK: #88
 
