@@ -2478,6 +2478,19 @@
             const [globalSnapshots, setGlobalSnapshots] = useState([]);
             const [snapshotSortBy, setSnapshotSortBy] = useState('age'); // vmid, vm_name, node, snapshot_name, snapshot_date, age
             const [snapshotSortDir, setSnapshotSortDir] = useState('desc');
+            const [logEvents, setLogEvents] = useState([]);
+            const [logEventsLoading, setLogEventsLoading] = useState(false);
+            const [logEventsError, setLogEventsError] = useState('');
+            const [logEventsPage, setLogEventsPage] = useState(1);
+            const [logEventsTotal, setLogEventsTotal] = useState(0);
+            const [logEventsTotalPages, setLogEventsTotalPages] = useState(0);
+            const [logEventsProtocols, setLogEventsProtocols] = useState([]);
+            const [logEventsSeverities, setLogEventsSeverities] = useState([]);
+            const [logEventsSortBy, setLogEventsSortBy] = useState('timestamp');
+            const [logEventsSortDir, setLogEventsSortDir] = useState('desc');
+            const emptyLogEventFilters = { search: '', severity: '', protocol: '', hostname: '', source_ip: '', facility: '' };
+            const [logEventFilters, setLogEventFilters] = useState(emptyLogEventFilters);
+            const [appliedLogEventFilters, setAppliedLogEventFilters] = useState(emptyLogEventFilters);
             
             // NS: Scheduled Actions state
             const [schedules, setSchedules] = useState([]);
@@ -3619,6 +3632,78 @@
                     setSnapshotSortDir('asc');
                 }
             };
+
+            const fetchLogEvents = async ({
+                page = logEventsPage,
+                sortBy = logEventsSortBy,
+                sortDir = logEventsSortDir,
+                filters = appliedLogEventFilters
+            } = {}) => {
+                setLogEventsLoading(true);
+                setLogEventsError('');
+                try {
+                    const params = new URLSearchParams({
+                        page: String(page),
+                        per_page: '50',
+                        sort_by: sortBy,
+                        sort_dir: sortDir
+                    });
+
+                    Object.entries(filters || {}).forEach(([key, value]) => {
+                        if (value !== null && value !== undefined && String(value).trim() !== '') {
+                            params.set(key, String(value).trim());
+                        }
+                    });
+
+                    const response = await authFetch(`${API_URL}/syslog/events?${params.toString()}`);
+                    if (response && response.ok) {
+                        const data = await response.json();
+                        setLogEvents(Array.isArray(data.items) ? data.items : []);
+                        setLogEventsTotal(data.pagination?.total || 0);
+                        setLogEventsTotalPages(data.pagination?.total_pages || 0);
+                        setLogEventsProtocols(Array.isArray(data.filters?.protocols) ? data.filters.protocols : []);
+                        setLogEventsSeverities(Array.isArray(data.filters?.severities) ? data.filters.severities : []);
+                    } else {
+                        setLogEvents([]);
+                        setLogEventsTotal(0);
+                        setLogEventsTotalPages(0);
+                        setLogEventsError('Failed to load log events');
+                    }
+                } catch (err) {
+                    console.error('Log events fetch failed:', err);
+                    setLogEvents([]);
+                    setLogEventsTotal(0);
+                    setLogEventsTotalPages(0);
+                    setLogEventsError('Failed to load log events');
+                } finally {
+                    setLogEventsLoading(false);
+                }
+            };
+
+            const applyLogEventFilters = () => {
+                setLogEventsPage(1);
+                setAppliedLogEventFilters({ ...logEventFilters });
+            };
+
+            const resetLogEventFilters = () => {
+                setLogEventsPage(1);
+                setLogEventFilters(emptyLogEventFilters);
+                setAppliedLogEventFilters(emptyLogEventFilters);
+            };
+
+            const toggleLogEventSort = (field) => {
+                if (logEventsSortBy === field) {
+                    setLogEventsSortDir(logEventsSortDir === 'asc' ? 'desc' : 'asc');
+                } else {
+                    setLogEventsSortBy(field);
+                    setLogEventsSortDir(field === 'timestamp' ? 'desc' : 'asc');
+                }
+            };
+
+            useEffect(() => {
+                if (resourcesSubTab !== 'logs') return;
+                fetchLogEvents();
+            }, [resourcesSubTab, logEventsPage, logEventsSortBy, logEventsSortDir, appliedLogEventFilters, selectedCluster?.id]);
             
             // ============================================
             // Scheduled Actions Functions - MK Jan 2026  
@@ -8481,6 +8566,18 @@
                                                         {t('snapshotsOverview') || 'Snapshot Overview'}
                                                     </button>
                                                     <button
+                                                        onClick={() => setResourcesSubTab('logs')}
+                                                        className={isCorporate
+                                                            ? `flex items-center gap-1 ${resourcesSubTab === 'logs' ? 'active' : ''}`
+                                                            : `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${
+                                                                resourcesSubTab === 'logs' ? 'bg-proxmox-orange text-white' : 'text-gray-400 hover:text-white hover:bg-proxmox-hover'
+                                                              }`
+                                                        }
+                                                    >
+                                                        <Icons.Terminal className={isCorporate ? 'w-3 h-3' : 'w-4 h-4'} />
+                                                        {t('syslog') || 'Log Events'}
+                                                    </button>
+                                                    <button
                                                         onClick={() => setResourcesSubTab('topology')}
                                                         className={isCorporate
                                                             ? `flex items-center gap-1 ${resourcesSubTab === 'topology' ? 'active' : ''}`
@@ -8689,6 +8786,224 @@
                                                                     </tbody>
                                                                 </table>
                                                             </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {resourcesSubTab === 'logs' && (
+                                                    <div className={isCorporate
+                                                        ? 'bg-proxmox-card border border-proxmox-border p-4 space-y-4'
+                                                        : 'bg-proxmox-card border border-proxmox-border rounded-xl p-6 space-y-4'
+                                                    }>
+                                                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                                            <div>
+                                                                <h3 className="text-lg font-semibold text-white">{t('syslog') || 'Log Events'}</h3>
+                                                                <p className="text-sm text-gray-400 mt-1">
+                                                                    Integrated syslog events with filtering, search, sorting and 50-row pages
+                                                                </p>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => fetchLogEvents({ page: logEventsPage })}
+                                                                className="self-start p-2 rounded-lg bg-proxmox-dark border border-proxmox-border text-gray-400 hover:text-white"
+                                                                title="Refresh"
+                                                            >
+                                                                <Icons.RotateCw className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+                                                            <div className="xl:col-span-2">
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+                                                                <div className="relative">
+                                                                    <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+                                                                    <input
+                                                                        type="text"
+                                                                        value={logEventFilters.search}
+                                                                        onChange={(e) => setLogEventFilters(prev => ({ ...prev, search: e.target.value }))}
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter') applyLogEventFilters(); }}
+                                                                        placeholder="Message, host, IP, protocol"
+                                                                        className="w-full rounded-lg bg-proxmox-dark border border-proxmox-border pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
+                                                                <select
+                                                                    value={logEventFilters.severity}
+                                                                    onChange={(e) => setLogEventFilters(prev => ({ ...prev, severity: e.target.value }))}
+                                                                    className="w-full rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                >
+                                                                    <option value="">All severities</option>
+                                                                    {logEventsSeverities.map((sev) => (
+                                                                        <option key={sev.value} value={sev.value}>{sev.label}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Protocol</label>
+                                                                <select
+                                                                    value={logEventFilters.protocol}
+                                                                    onChange={(e) => setLogEventFilters(prev => ({ ...prev, protocol: e.target.value }))}
+                                                                    className="w-full rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                >
+                                                                    <option value="">All protocols</option>
+                                                                    {logEventsProtocols.map((protocol) => (
+                                                                        <option key={protocol} value={protocol}>{protocol}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Hostname</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={logEventFilters.hostname}
+                                                                    onChange={(e) => setLogEventFilters(prev => ({ ...prev, hostname: e.target.value }))}
+                                                                    onKeyDown={(e) => { if (e.key === 'Enter') applyLogEventFilters(); }}
+                                                                    placeholder="Filter host"
+                                                                    className="w-full rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Source IP</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={logEventFilters.source_ip}
+                                                                    onChange={(e) => setLogEventFilters(prev => ({ ...prev, source_ip: e.target.value }))}
+                                                                    onKeyDown={(e) => { if (e.key === 'Enter') applyLogEventFilters(); }}
+                                                                    placeholder="Filter IP"
+                                                                    className="w-full rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-500 mb-1">Facility</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    value={logEventFilters.facility}
+                                                                    onChange={(e) => setLogEventFilters(prev => ({ ...prev, facility: e.target.value }))}
+                                                                    onKeyDown={(e) => { if (e.key === 'Enter') applyLogEventFilters(); }}
+                                                                    placeholder="e.g. 1"
+                                                                    className="w-28 rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-proxmox-orange"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={applyLogEventFilters}
+                                                                className="mt-5 rounded-lg bg-proxmox-orange px-4 py-2 text-sm font-medium text-white hover:bg-proxmox-orange/90"
+                                                            >
+                                                                {t('filter') || 'Filter'}
+                                                            </button>
+                                                            <button
+                                                                onClick={resetLogEventFilters}
+                                                                className="mt-5 rounded-lg bg-proxmox-dark border border-proxmox-border px-4 py-2 text-sm text-gray-300 hover:text-white"
+                                                            >
+                                                                Reset
+                                                            </button>
+                                                            <div className="mt-5 text-xs text-gray-500">
+                                                                {logEventsTotal > 0 ? `${logEventsTotal} events found` : 'No events matched'}
+                                                            </div>
+                                                        </div>
+
+                                                        {logEventsLoading ? (
+                                                            <div className="bg-proxmox-dark rounded-xl p-8 text-center text-gray-400">
+                                                                Loading log events...
+                                                            </div>
+                                                        ) : logEventsError ? (
+                                                            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300">
+                                                                {logEventsError}
+                                                            </div>
+                                                        ) : !Array.isArray(logEvents) || logEvents.length === 0 ? (
+                                                            <div className="bg-proxmox-dark rounded-xl p-8 text-center">
+                                                                <Icons.Terminal className="mx-auto mb-3 w-10 h-10 text-gray-600" />
+                                                                <p className="text-gray-500">No log events found</p>
+                                                                <p className="text-xs text-gray-600 mt-2">Adjust the filters or wait for new syslog messages to arrive</p>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <div className="overflow-x-auto bg-proxmox-dark rounded-xl border border-gray-800">
+                                                                    <table className="min-w-full text-sm">
+                                                                        <thead className="bg-black/40 text-gray-400">
+                                                                            <tr>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('timestamp')}>
+                                                                                    Timestamp {logEventsSortBy === 'timestamp' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('severity')}>
+                                                                                    Severity {logEventsSortBy === 'severity' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('protocol')}>
+                                                                                    Protocol {logEventsSortBy === 'protocol' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('hostname')}>
+                                                                                    Hostname {logEventsSortBy === 'hostname' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('source_ip')}>
+                                                                                    Source IP {logEventsSortBy === 'source_ip' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('facility')}>
+                                                                                    Facility {logEventsSortBy === 'facility' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                                <th className="px-4 py-3 text-left cursor-pointer hover:text-white" onClick={() => toggleLogEventSort('message')}>
+                                                                                    Message {logEventsSortBy === 'message' && (logEventsSortDir === 'asc' ? '↑' : '↓')}
+                                                                                </th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-gray-800">
+                                                                            {logEvents.map((event) => {
+                                                                                const sev = (event.severity_text || '').toLowerCase();
+                                                                                const severityClass =
+                                                                                    sev === 'emergency' || sev === 'alert' || sev === 'critical' || sev === 'error'
+                                                                                        ? 'bg-red-500/20 text-red-300'
+                                                                                        : sev === 'warning'
+                                                                                            ? 'bg-yellow-500/20 text-yellow-300'
+                                                                                            : sev === 'notice'
+                                                                                                ? 'bg-blue-500/20 text-blue-300'
+                                                                                                : 'bg-gray-500/20 text-gray-300';
+                                                                                return (
+                                                                                    <tr key={event.id} className="hover:bg-white/5 transition-colors align-top">
+                                                                                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">
+                                                                                            {event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3">
+                                                                                            <span className={`inline-flex items-center rounded px-2 py-1 text-xs font-medium ${severityClass}`}>
+                                                                                                {event.severity_text || event.severity || '-'}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{event.protocol || '-'}</td>
+                                                                                        <td className="px-4 py-3 text-gray-200 whitespace-nowrap">{event.hostname || '-'}</td>
+                                                                                        <td className="px-4 py-3 text-gray-300 whitespace-nowrap">{event.source_ip || '-'}</td>
+                                                                                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{event.facility ?? '-'}</td>
+                                                                                        <td className="px-4 py-3 text-gray-200 min-w-[24rem] whitespace-pre-wrap break-words">{event.message || '-'}</td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+
+                                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                                    <div className="text-sm text-gray-400">
+                                                                        Page {logEventsPage} of {Math.max(logEventsTotalPages, 1)} with up to 50 events per page
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button
+                                                                            onClick={() => setLogEventsPage(prev => Math.max(prev - 1, 1))}
+                                                                            disabled={logEventsPage <= 1}
+                                                                            className="rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                        >
+                                                                            Previous
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setLogEventsPage(prev => Math.min(prev + 1, Math.max(logEventsTotalPages, 1)))}
+                                                                            disabled={logEventsPage >= logEventsTotalPages}
+                                                                            className="rounded-lg bg-proxmox-dark border border-proxmox-border px-3 py-2 text-sm text-gray-300 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                        >
+                                                                            Next
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </>
                                                         )}
                                                     </div>
                                                 )}

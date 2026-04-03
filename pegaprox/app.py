@@ -480,6 +480,7 @@ def main(debug_mode=False):
     from pegaprox.background.password_expiry import start_password_expiry_thread
     from pegaprox.background.cross_cluster_lb import start_cross_cluster_lb_thread
     from pegaprox.background.cross_cluster_replication import start_cross_cluster_replication_thread
+    from pegaprox.background.syslog_server import start_syslog_server
     from pegaprox.api.schedules import start_scheduler as start_actions_scheduler
     from pegaprox.api.helpers import load_server_settings
     from pegaprox.utils.rbac import get_pool_membership_cache
@@ -634,6 +635,9 @@ def main(debug_mode=False):
 
     start_cross_cluster_replication_thread()
     print("Started cross-cluster replication scheduler thread")
+
+    start_syslog_server()
+    print("Started syslog server")
 
     # #238: reset stuck DR plans from a previous crash/restart
     try:

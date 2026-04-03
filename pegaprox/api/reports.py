@@ -2,7 +2,9 @@
 """reports + legacy tags routes - split from monolith dec 2025, NS"""
 
 import time
+import os
 import logging
+import sqlite3
 import threading
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
@@ -15,6 +17,7 @@ from pegaprox.utils.auth import require_auth, load_users
 from pegaprox.utils.rbac import get_user_clusters
 from pegaprox.api.helpers import check_cluster_access
 from pegaprox.background.metrics import load_metrics_history, start_metrics_collector
+from pegaprox.background.syslog_server import DB_FILE, SEVERITY_MAP
 from pegaprox.api.schedules import start_scheduler
 
 bp = Blueprint('reports', __name__)
@@ -119,6 +122,147 @@ def get_reports_summary():
         }
     
     return jsonify(report)
+
+
+@bp.route('/api/syslog/events', methods=['GET'])
+@require_auth(perms=['cluster.view'])
+def get_integrated_syslog_events():
+    """Paginated overview of events stored by the integrated syslog server."""
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+    except (TypeError, ValueError):
+        page = 1
+
+    try:
+        per_page = int(request.args.get('per_page', 50))
+    except (TypeError, ValueError):
+        per_page = 50
+    per_page = min(max(per_page, 1), 50)
+
+    search = (request.args.get('search') or '').strip().lower()
+    severity = (request.args.get('severity') or '').strip()
+    protocol = (request.args.get('protocol') or '').strip().upper()
+    hostname = (request.args.get('hostname') or '').strip().lower()
+    source_ip = (request.args.get('source_ip') or '').strip().lower()
+    facility = (request.args.get('facility') or '').strip()
+
+    sort_map = {
+        'id': 'id',
+        'timestamp': 'timestamp',
+        'source_ip': 'source_ip',
+        'hostname': 'hostname',
+        'facility': 'facility',
+        'severity': 'severity',
+        'severity_text': 'severity_text',
+        'message': 'message',
+        'protocol': 'protocol',
+    }
+
+    sort_by = sort_map.get(request.args.get('sort_by', 'timestamp'), 'timestamp')
+    sort_dir = 'asc' if request.args.get('sort_dir', 'desc').lower() == 'asc' else 'desc'
+
+    db_path = os.path.abspath(DB_FILE)
+    if not os.path.exists(db_path):
+        return jsonify({
+            'items': [],
+            'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'total_pages': 0},
+            'filters': {
+                'protocols': [],
+                'severities': [{'value': level, 'label': text} for level, text in sorted(SEVERITY_MAP.items())]
+            }
+        })
+
+    where = []
+    params = []
+
+    if search:
+        like = f'%{search}%'
+        where.append("""(
+            LOWER(COALESCE(timestamp, '')) LIKE ? OR
+            LOWER(COALESCE(source_ip, '')) LIKE ? OR
+            LOWER(COALESCE(hostname, '')) LIKE ? OR
+            LOWER(COALESCE(severity_text, '')) LIKE ? OR
+            LOWER(COALESCE(message, '')) LIKE ? OR
+            LOWER(COALESCE(protocol, '')) LIKE ?
+        )""")
+        params.extend([like, like, like, like, like, like])
+
+    if severity != '':
+        try:
+            severity_value = int(severity)
+            where.append('severity = ?')
+            params.append(severity_value)
+        except ValueError:
+            pass
+
+    if protocol:
+        where.append("UPPER(COALESCE(protocol, '')) = ?")
+        params.append(protocol)
+
+    if hostname:
+        where.append("LOWER(COALESCE(hostname, '')) LIKE ?")
+        params.append(f'%{hostname}%')
+
+    if source_ip:
+        where.append("LOWER(COALESCE(source_ip, '')) LIKE ?")
+        params.append(f'%{source_ip}%')
+
+    if facility != '':
+        try:
+            facility_value = int(facility)
+            where.append('facility = ?')
+            params.append(facility_value)
+        except ValueError:
+            pass
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ''
+    offset = (page - 1) * per_page
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS count FROM logs {where_sql}",
+            params
+        ).fetchone()['count']
+
+        rows = conn.execute(
+            f"""
+            SELECT id, timestamp, source_ip, hostname, facility, severity, severity_text, message, protocol
+            FROM logs
+            {where_sql}
+            ORDER BY {sort_by} {sort_dir}, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, per_page, offset]
+        ).fetchall()
+
+        protocol_rows = conn.execute(
+            """
+            SELECT DISTINCT protocol
+            FROM logs
+            WHERE protocol IS NOT NULL AND TRIM(protocol) != ''
+            ORDER BY protocol ASC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    total_pages = (total + per_page - 1) // per_page if total else 0
+
+    return jsonify({
+        'items': [dict(row) for row in rows],
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'total_pages': total_pages,
+        },
+        'filters': {
+            'protocols': [row['protocol'] for row in protocol_rows],
+            'severities': [{'value': level, 'label': text} for level, text in sorted(SEVERITY_MAP.items())]
+        }
+    })
 
 
 @bp.route('/api/reports/timeline', methods=['GET'])
