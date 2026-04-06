@@ -15478,6 +15478,8 @@
                 clusterReconfigured: '클러스터가 성공적으로 재구성되었습니다',
                 reconfigure: '재구성',
                 clusterHealth: '클러스터 상태',
+                clusterHealthTooltip: '상태 = 100 − (CPU×30% + RAM×30% + 스토리지×20% + 오프라인 노드×20%)\n스토리지 데이터 없음: CPU×37.5% + RAM×37.5% + 오프라인×25%\n\n80+: 우수\n60–79: 양호\n40–59: 경고\n< 40: 심각',
+                nodeScoreTooltip: '노드 점수 = CPU% + RAM% (낮을수록 좋음)\n\n< 100: 양호 (녹색)\n100–150: 주의 (노란색)\n> 150: 심각 (빨간색)',
                 excellent: '우수',
                 good: '양호',
                 warning: '경고',
@@ -15485,6 +15487,7 @@
                 nodesOnline: '온라인 노드',
                 nodeJoinHint: '새 노드를 추가하려면 새 노드에서 실행하세요:',
                 avgScore: '평균 점수',
+                avgStorage: '평균 스토리지',
                 avgCpu: '평균 CPU',
                 avgRam: '평균 RAM',
 
