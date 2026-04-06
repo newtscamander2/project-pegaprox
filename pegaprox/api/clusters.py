@@ -247,8 +247,20 @@ def reconfigure_cluster(cluster_id):
     for field in ['name', 'host', 'user']:
         if field not in data:
             return jsonify({'error': f'Missing required field: {field}'}), 400
-    if not data.get('pass') and not data.get('ssh_key'):
-        return jsonify({'error': 'Password or SSH key is required'}), 400
+
+    # Carry over existing credentials if not provided (reconfigure may only change non-secret fields)
+    old_config = cluster_managers[cluster_id].config
+    if not data.get('pass') and old_config.pass_:
+        data['pass'] = old_config.pass_
+    if not data.get('ssh_key') and old_config.ssh_key:
+        data['ssh_key'] = old_config.ssh_key
+    if not data.get('api_token_user') and old_config.api_token_user:
+        data['api_token_user'] = old_config.api_token_user
+    if not data.get('api_token_secret') and old_config.api_token_secret:
+        data['api_token_secret'] = old_config.api_token_secret
+
+    if not data.get('pass') and not data.get('ssh_key') and not (data.get('api_token_user') and data.get('api_token_secret')):
+        return jsonify({'error': 'Password, SSH key, or API token is required'}), 400
     if 'pass' not in data:
         data['pass'] = ''
 
