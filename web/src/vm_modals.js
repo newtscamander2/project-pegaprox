@@ -6148,12 +6148,12 @@
         // Cluster Health Widget
         function ClusterHealth({ metrics, isCorporate }) {
             const { t } = useTranslation();
-            const nodes = Object.entries(metrics);
+            const nodes = Object.entries(metrics).filter(([k, m]) => m && typeof m === 'object' && k !== 'error' && k !== 'offline');
             if (nodes.length === 0) return null;
 
-            const avgCpu = nodes.reduce((acc, [, m]) => acc + m.cpu_percent, 0) / nodes.length;
-            const avgMem = nodes.reduce((acc, [, m]) => acc + m.mem_percent, 0) / nodes.length;
-            const avgDisk = nodes.reduce((acc, [, m]) => acc + (m.disk_percent || 0), 0) / nodes.length;
+            const avgCpu = nodes.reduce((acc, [, m]) => acc + (m.cpu_percent ?? 0), 0) / nodes.length;
+            const avgMem = nodes.reduce((acc, [, m]) => acc + (m.mem_percent ?? 0), 0) / nodes.length;
+            const avgDisk = nodes.reduce((acc, [, m]) => acc + (m.disk_percent ?? 0), 0) / nodes.length;
             const onlineNodes = nodes.filter(([, m]) => m.status === 'online' && !m.maintenance_mode).length;
             const maintenanceNodes = nodes.filter(([, m]) => m.maintenance_mode).length;
             const offlineNodes = nodes.length - onlineNodes - maintenanceNodes;
