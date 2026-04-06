@@ -6153,12 +6153,17 @@
 
             const avgCpu = nodes.reduce((acc, [, m]) => acc + (m.cpu_percent ?? 0), 0) / nodes.length;
             const avgMem = nodes.reduce((acc, [, m]) => acc + (m.mem_percent ?? 0), 0) / nodes.length;
-            const avgDisk = nodes.reduce((acc, [, m]) => acc + (m.disk_percent ?? 0), 0) / nodes.length;
+            const diskNodes = nodes.filter(([, m]) => m.disk_percent != null);
+            const avgDisk = diskNodes.length > 0 ? diskNodes.reduce((acc, [, m]) => acc + m.disk_percent, 0) / diskNodes.length : null;
             const onlineNodes = nodes.filter(([, m]) => m.status === 'online' && !m.maintenance_mode).length;
             const maintenanceNodes = nodes.filter(([, m]) => m.maintenance_mode).length;
             const offlineNodes = nodes.length - onlineNodes - maintenanceNodes;
+            const offlineRatio = nodes.length > 0 ? (offlineNodes / nodes.length) * 100 : 0;
 
-            const healthScore = Math.max(0, 100 - (avgCpu * 0.3 + avgMem * 0.3 + avgDisk * 0.2 + (nodes.length > 0 ? (offlineNodes / nodes.length) * 100 * 0.2 : 0)));
+            // When disk stats unavailable (e.g. XCP-ng), re-normalize: CPU 37.5%, RAM 37.5%, Offline 25%
+            const healthScore = avgDisk != null
+                ? Math.max(0, 100 - (avgCpu * 0.3 + avgMem * 0.3 + avgDisk * 0.2 + offlineRatio * 0.2))
+                : Math.max(0, 100 - (avgCpu * 0.375 + avgMem * 0.375 + offlineRatio * 0.25));
             const healthLabel = healthScore >= 80 ? t('excellent') : healthScore >= 60 ? t('good') : healthScore >= 40 ? t('warning') : t('critical');
             const healthColor = healthScore >= 80 ? '#22c55e' : healthScore >= 60 ? '#84cc16' : healthScore >= 40 ? '#eab308' : '#ef4444';
 
@@ -6223,7 +6228,7 @@
                             <div className="text-xs text-gray-500">{t('nodesOnline')}</div>
                         </div>
                         <div className="text-center">
-                            <div className="text-2xl font-bold text-white">{avgDisk.toFixed(1)}%</div>
+                            <div className="text-2xl font-bold text-white">{avgDisk != null ? `${avgDisk.toFixed(1)}%` : 'N/A'}</div>
                             <div className="text-xs text-gray-500">{t('avgStorage')}</div>
                         </div>
                         <div className="text-center">
