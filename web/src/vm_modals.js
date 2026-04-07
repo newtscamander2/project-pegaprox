@@ -6146,45 +6146,50 @@
         }
 
         // Cluster Health Widget
+        // Note: ClusterHealth only renders for the connected selected cluster;
+        // disconnected clusters switch away from this view, so no connected guard is needed.
         function ClusterHealth({ metrics, clusterStatus, isCorporate }) {
             const { t } = useTranslation();
             const nodes = Object.entries(metrics).filter(([k, m]) => m && typeof m === 'object' && k !== 'error' && k !== 'offline');
             if (nodes.length === 0 && !clusterStatus) return null;
 
             // Node status from per-node metrics (has maintenance_mode info not in datacenter status)
-            const onlineNodes = nodes.filter(([, m]) => m.status === 'online' && !m.maintenance_mode).length;
+            const onlineNodes = nodes.length > 0
+                ? nodes.filter(([, m]) => m.status === 'online' && !m.maintenance_mode).length
+                : (clusterStatus?.nodes?.online ?? 0);
             const maintenanceNodes = nodes.filter(([, m]) => m.maintenance_mode).length;
 
-            // Real-time display values from per-node SSE metrics (~1s updates)
-            const displayCpu = nodes.length > 0 ? nodes.reduce((acc, [, m]) => acc + (m.cpu_percent ?? 0), 0) / nodes.length : 0;
-            const displayMem = nodes.length > 0 ? nodes.reduce((acc, [, m]) => acc + (m.mem_percent ?? 0), 0) / nodes.length : 0;
+            // Pre-compute disk nodes for fallback paths (reused below)
+            const diskNodes = nodes.filter(([, m]) => m.disk_percent != null);
+            const avgDiskPercent = diskNodes.length > 0 ? diskNodes.reduce((acc, [, m]) => acc + (Number(m.disk_percent) || 0), 0) / diskNodes.length : 0;
+
+            // Real-time display values from per-node SSE metrics (~1s updates), fall back to clusterStatus
+            const displayCpu = nodes.length > 0 ? nodes.reduce((acc, [, m]) => acc + (Number(m.cpu_percent) || 0), 0) / nodes.length : (clusterStatus?.resources?.cpu?.percent ?? 0);
+            const displayMem = nodes.length > 0 ? nodes.reduce((acc, [, m]) => acc + (Number(m.mem_percent) || 0), 0) / nodes.length : (clusterStatus?.resources?.memory?.percent ?? 0);
 
             // Health score inputs from cluster-level datacenter/status (same source as badge/overview)
             let healthCpu, healthMem, healthStorage, offlineRatio, totalNodeCount;
 
             if (clusterStatus && clusterStatus.resources) {
                 const resources = clusterStatus.resources;
-                healthCpu = resources.cpu?.percent || 0;
-                healthMem = resources.memory?.percent || 0;
-                healthStorage = resources.storage?.percent || 0;
-                totalNodeCount = clusterStatus.nodes?.total || nodes.length;
-                const offlineNodes = clusterStatus.nodes?.offline || 0;
+                healthCpu = resources.cpu?.percent ?? 0;
+                healthMem = resources.memory?.percent ?? 0;
+                healthStorage = resources.storage?.percent ?? 0;
+                totalNodeCount = clusterStatus.nodes?.total ?? nodes.length;
+                const offlineNodes = clusterStatus.nodes?.offline ?? 0;
                 offlineRatio = totalNodeCount > 0 ? (offlineNodes / totalNodeCount) * 100 : 0;
             } else {
                 // Fallback: per-node data (when datacenter status not yet loaded)
                 healthCpu = displayCpu;
                 healthMem = displayMem;
-                const diskNodes = nodes.filter(([, m]) => m.disk_percent != null);
-                healthStorage = diskNodes.length > 0 ? diskNodes.reduce((acc, [, m]) => acc + m.disk_percent, 0) / diskNodes.length : 0;
+                healthStorage = avgDiskPercent;
                 totalNodeCount = nodes.length;
                 const offlineNodes = nodes.length - onlineNodes - maintenanceNodes;
                 offlineRatio = totalNodeCount > 0 ? (offlineNodes / totalNodeCount) * 100 : 0;
             }
 
             // Storage display: use cluster-level storage pools (not rootfs) when available
-            const displayStorage = clusterStatus?.resources?.storage?.percent ?? (nodes.length > 0
-                ? (() => { const dn = nodes.filter(([, m]) => m.disk_percent != null); return dn.length > 0 ? dn.reduce((acc, [, m]) => acc + m.disk_percent, 0) / dn.length : 0; })()
-                : 0);
+            const displayStorage = clusterStatus?.resources?.storage?.percent ?? avgDiskPercent;
 
             // Unified formula - same weights as badge/overview (CPU 30%, RAM 30%, Storage 20%, Offline 20%)
             const healthScore = Math.max(0, 100 - (healthCpu * 0.3 + healthMem * 0.3 + healthStorage * 0.2 + offlineRatio * 0.2));
