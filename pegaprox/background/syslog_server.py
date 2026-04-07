@@ -1,33 +1,34 @@
 """
-PegaProx Async Syslog Server
-Receives syslog messages from remote systems and writes events into local sqllite db
-"""
+PegaProx Syslog Server — receives syslog messages via UDP/TCP
+Stores events in SQLite for the integrated log viewer.
 
-import asyncio
-import sqlite3
-import ssl
+NS: Apr 2026 — rewritten for gevent compatibility (no asyncio, no multiprocessing)
+Original PR by gyptazy, adapted to fit PegaProx architecture.
+"""
 import os
+import time
+import logging
+import sqlite3
+import threading
 from datetime import datetime
 
+from pegaprox.constants import CONFIG_DIR
 
-DB_FILE = "syslog.db"
+# DB in config dir, not CWD
+DB_FILE = os.path.join(CONFIG_DIR, 'syslog.db')
+
 SEVERITY_MAP = {
-    0: "emergency",
-    1: "alert",
-    2: "critical",
-    3: "error",
-    4: "warning",
-    5: "notice",
-    6: "info",
-    7: "debug"
+    0: "emergency", 1: "alert", 2: "critical", 3: "error",
+    4: "warning", 5: "notice", 6: "info", 7: "debug"
 }
 
+_syslog_thread = None
 
-def init_db():
+
+def _init_db():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL;")
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,29 +42,26 @@ def init_db():
             protocol TEXT
         )
     """)
-
     conn.commit()
     conn.close()
+    logging.info(f"[Syslog] Database initialized: {DB_FILE}")
 
 
-def _insert_log_sync(entry):
-    conn = sqlite3.connect(DB_FILE, timeout=5)
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO logs (
-            timestamp, source_ip, hostname,
-            facility, severity, severity_text,
-            message, protocol
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, entry)
-
-    conn.commit()
-    conn.close()
+def _insert_log(entry):
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=5)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO logs (timestamp, source_ip, hostname, facility, severity, severity_text, message, protocol)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, entry)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logging.debug(f"[Syslog] Insert failed: {e}")
 
 
-def parse_syslog(message: str):
+def parse_syslog(message):
     hostname = "unknown"
     facility = None
     severity = None
@@ -74,14 +72,11 @@ def parse_syslog(message: str):
         if message.startswith("<"):
             pri_end = message.find(">")
             pri = int(message[1:pri_end])
-
             facility = pri // 8
             severity = pri % 8
             severity_text = SEVERITY_MAP.get(severity, "unknown")
-
             rest = message[pri_end + 1:].strip()
             parts = rest.split()
-
             if len(parts) >= 4:
                 hostname = parts[3]
                 msg = " ".join(parts[4:])
@@ -93,180 +88,105 @@ def parse_syslog(message: str):
     return hostname, facility, severity, severity_text, msg
 
 
-class LogWriter:
-    def __init__(self):
-        self.queue = asyncio.Queue()
-
-    async def start(self):
-        loop = asyncio.get_running_loop()
-        while True:
-            entry = await self.queue.get()
-            await loop.run_in_executor(None, _insert_log_sync, entry)
-
-    async def log(self, source_ip, protocol, message):
-        hostname, facility, severity, severity_text, msg = parse_syslog(message)
-
-        entry = (
-            datetime.utcnow().isoformat(),
-            source_ip,
-            hostname,
-            facility,
-            severity,
-            severity_text,
-            msg,
-            protocol
-        )
-
-        await self.queue.put(entry)
-
-
-writer = LogWriter()
-
-
-class SyslogUDP(asyncio.DatagramProtocol):
-    def datagram_received(self, data, addr):
-        message = data.decode(errors="ignore").strip()
-        asyncio.create_task(writer.log(addr[0], "UDP", message))
-
-
-async def handle_tcp(reader, writer_stream):
-    addr = writer_stream.get_extra_info("peername")[0]
+def _udp_listener(host, port):
+    """UDP syslog listener using plain sockets (gevent-compatible)"""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+        logging.info(f"[Syslog] UDP listening on {host}:{port}")
+    except OSError as e:
+        logging.warning(f"[Syslog] UDP bind failed on {host}:{port}: {e}")
+        return
 
     while True:
-        data = await reader.readline()
-        if not data:
-            break
-
-        message = data.decode(errors="ignore").strip()
-        await writer.log(addr, "TCP", message)
-
-
-def create_ssl_context():
-    if not os.path.exists("cert.pem") or not os.path.exists("key.pem"):
-        print("[TLS] Disabled (no cert.pem/key.pem)")
-        return None
-
-    ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ctx.load_cert_chain("cert.pem", "key.pem")
-    return ctx
-
-
-import asyncio
-import socket
-
-
-async def start_udp(loop, host, port, family):
-    transport, _ = await loop.create_datagram_endpoint(
-        lambda: SyslogUDP(),
-        local_addr=(host, port),
-        family=family,
-    )
-    return transport
-
-
-async def start_tcp(host, port, family, ssl_ctx=None):
-    return await asyncio.start_server(
-        handle_tcp,
-        host=host,
-        port=port,
-        family=family,
-        ssl=ssl_ctx,
-    )
-
-
-async def main_async():
-    init_db()
-
-    loop = asyncio.get_running_loop()
-    asyncio.create_task(writer.start())
-
-    bind_host = config.syslog_bind_host
-    # we are not running as root and nee to remap the ports
-    port = 1514
-    tls_port = 6514
-
-    udp_transports = []
-    tcp_servers = []
-    tls_servers = []
-
-    if bind_host in ("0.0.0.0", "", "::"):
         try:
-            udp4 = await start_udp(loop, "0.0.0.0", port, socket.AF_INET)
-            udp_transports.append(udp4)
-            print("[UDP][IPv4] Listening on 0.0.0.0:1514")
+            data, addr = sock.recvfrom(8192)
+            message = data.decode(errors="ignore").strip()
+            if not message:
+                continue
+            hostname, facility, severity, severity_text, msg = parse_syslog(message)
+            entry = (
+                datetime.now().isoformat(),
+                addr[0], hostname, facility, severity, severity_text, msg, "UDP"
+            )
+            _insert_log(entry)
         except Exception as e:
-            print(f"[UDP][IPv4] Failed: {e}")
-
-        try:
-            tcp4 = await start_tcp("0.0.0.0", port, socket.AF_INET)
-            tcp_servers.append(tcp4)
-            print("[TCP][IPv4] Listening on 0.0.0.0:1514")
-        except Exception as e:
-            print(f"[TCP][IPv4] Failed: {e}")
-
-    if bind_host in ("::", "", "0.0.0.0"):
-        try:
-            udp6 = await start_udp(loop, "::", port, socket.AF_INET6)
-            udp_transports.append(udp6)
-            print("[UDP][IPv6] Listening on [::]:1514")
-        except Exception as e:
-            print(f"[UDP][IPv6] Failed: {e}")
-
-        try:
-            tcp6 = await start_tcp("::", port, socket.AF_INET6)
-            tcp_servers.append(tcp6)
-            print("[TCP][IPv6] Listening on [::]:1514")
-        except Exception as e:
-            print(f"[TCP][IPv6] Failed: {e}")
-
-    ssl_ctx = create_ssl_context()
-    if ssl_ctx:
-        try:
-            tls4 = await start_tcp("0.0.0.0", tls_port, socket.AF_INET, ssl_ctx)
-            tls_servers.append(tls4)
-            print("[TLS][IPv4] Listening on 0.0.0.0:6514")
-        except Exception as e:
-            print(f"[TLS][IPv4] Failed: {e}")
-
-        try:
-            tls6 = await start_tcp("::", tls_port, socket.AF_INET6, ssl_ctx)
-            tls_servers.append(tls6)
-            print("[TLS][IPv6] Listening on [::]:6514")
-        except Exception as e:
-            print(f"[TLS][IPv6] Failed: {e}")
-
-    await asyncio.Event().wait()
+            logging.debug(f"[Syslog] UDP error: {e}")
+            time.sleep(0.1)
 
 
-def main():
+def _tcp_listener(host, port):
+    """TCP syslog listener using plain sockets (gevent-compatible)"""
+    import socket
+    import gevent
+    from gevent import socket as gsocket
+
+    srv = gsocket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        import uvloop
-        uvloop.install()
-        print("[Syslog] Using uvloop")
-    except ImportError:
-        print("[Syslog] uvloop not installed (pip install uvloop)")
+        srv.bind((host, port))
+        srv.listen(32)
+        logging.info(f"[Syslog] TCP listening on {host}:{port}")
+    except OSError as e:
+        logging.warning(f"[Syslog] TCP bind failed on {host}:{port}: {e}")
+        return
 
-    asyncio.run(main_async())
+    def handle_client(client_sock, addr):
+        try:
+            buf = b""
+            while True:
+                data = client_sock.recv(4096)
+                if not data:
+                    break
+                buf += data
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    message = line.decode(errors="ignore").strip()
+                    if message:
+                        hostname, facility, severity, severity_text, msg = parse_syslog(message)
+                        entry = (
+                            datetime.now().isoformat(),
+                            addr[0], hostname, facility, severity, severity_text, msg, "TCP"
+                        )
+                        _insert_log(entry)
+        except Exception:
+            pass
+        finally:
+            client_sock.close()
+
+    while True:
+        try:
+            client, addr = srv.accept()
+            gevent.spawn(handle_client, client, addr)
+        except Exception as e:
+            logging.debug(f"[Syslog] TCP accept error: {e}")
+            time.sleep(0.1)
 
 
-_PROCESS = None
+def _syslog_loop():
+    """Main syslog server loop — runs UDP + TCP in gevent greenlets"""
+    import gevent
+
+    _init_db()
+
+    port = 1514
+    host = "0.0.0.0"
+
+    udp = gevent.spawn(_udp_listener, host, port)
+    tcp = gevent.spawn(_tcp_listener, host, port)
+
+    logging.info(f"[Syslog] Server started on port {port} (UDP+TCP)")
+    gevent.joinall([udp, tcp])
 
 
 def start_syslog_server():
-    global _PROCESS
-
-    import multiprocessing
-
-    if _PROCESS is not None:
+    """Start syslog server in a background thread"""
+    global _syslog_thread
+    if _syslog_thread is not None:
         return
 
-    ctx = multiprocessing.get_context("spawn")
-
-    _PROCESS = ctx.Process(
-        target=main,
-        name="pegaprox-syslog",
-        daemon=True
-    )
-
-    _PROCESS.start()
-    print(f"[Syslog] Started (PID: {_PROCESS.pid})")
+    _syslog_thread = threading.Thread(target=_syslog_loop, daemon=True, name='syslog-server')
+    _syslog_thread.start()
+    logging.info("[Syslog] Background thread started")

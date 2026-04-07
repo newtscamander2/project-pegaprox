@@ -636,12 +636,16 @@ def main(debug_mode=False):
     start_cross_cluster_replication_thread()
     print("Started cross-cluster replication scheduler thread")
 
-    start_syslog_server()
-    print("Started syslog server")
+    try:
+        start_syslog_server()
+        print("Started integrated syslog server")
+    except Exception as e:
+        logging.warning(f"Syslog server failed to start: {e}")
 
     # #238: reset stuck DR plans from a previous crash/restart
     try:
         from datetime import datetime as _dt
+        from pegaprox.core.db import get_db
         _db = get_db()
         stuck = _db.query("SELECT id, name FROM site_recovery_plans WHERE status IN ('running', 'testing')")
         for p in (stuck or []):
